@@ -1,16 +1,16 @@
-
 <?
 /*
  * CPMObjectEventHandler: StudyPlanRequest
  * Package: CO
  * Objects: CO\StudyPlanRequest
- * Actions: Create
+ * Actions: Create, Update
  * Version: 1.2
  */
  
  //Purpose of the script: Automatically create a new incident of type 'study plan' and bind it with newly created StudyPlanRequest record.
  
 // This object procedure binds to v1_1 of the Connect PHP API
+
 use \RightNow\Connect\v1_2 as RNCPHP;
 // This object procedure binds to the v1 interface of the process
 // designer
@@ -29,55 +29,67 @@ class StudyPlanRequest
 {
     public static function apply( $run_mode, $action, $obj, $n_cycles )
     { 
-			$primaryContact=$obj->contact_id;
-			//$incident=$obj->incident_id;
-			//var_dump($incident);
-			
-			if ($action==1)
-			{
-				//$primaryContact= RNCPHP\Contact::fetch( $obj->contact_id->ID);
-				
-				
-				//subject for new incidnet				
-				$subject= self::getSubject($primaryContact,false);	
+				$primaryContact=$obj->contact_id;
+					
 				$incidentText=	self::createIncidentText($obj);
 				$queueName= self::assignQueue($obj);
 				$status=self::assignStatus($obj);
 				
 				
+				if($action == 2)
+				{
+					
+					$subject= self::getSubject($primaryContact,true);
+					$incident=$obj->incident_id;
+					$incident=self::createUpdateIncident($status,$queueName,$subject,$incidentText,$primaryContact,$incident);	
+						
+				}
+				else
+				{
+					$subject= self::getSubject($primaryContact,false);
+					$incident=NULL;
+					$incident=self::createUpdateIncident($status,$queueName,$subject,$incidentText,$primaryContact,NULL);	
+					
+					$obj->incident_id=$incident;
+					$obj->save(RNCPHP\CO\StudyPlanRequest::SuppressAll);
+						
 				
-				//$incident=self::createUpdateIncident($status,$queueName,$subject,$incidentText,$primaryContact,$incident);
-				$incident=self::createUpdateIncident($status,$queueName,$subject,$incidentText,$primaryContact,NULL);
+				}
+				
 				//include reference number in the subject line,
 				$subject .= " [Enquiry:" . $incident->ReferenceNumber . "]";
 				
-				
 				if ($obj->under_review==1)
 					{
+						$standardTextName='Progression Email address for SPR';
+				
+				
+						$standardContent =RNCPHP\StandardContent::find("Name = '".$standardTextName."'");  //RNCPHP\StandardContent::fetch(79);
+						var_dump($standardContent[0]->ContentValues[0]->Value);
+						//text value of standard content
+						$progressionEmailAddress=$standardContent[0]->ContentValues[0]->Value ;	
+						
 					
 						//prepare instructional email message
 						$message= self::prepareMessage($incident);
 						
 						//send email to progression
-						self::sendEmail($subject,$message,'progression@cdu.edu.au');
-						
-						$note="Request emailed to Progression team- Progression@cdu.edu.au";
+						self::sendEmail($subject,$message,$progressionEmailAddress);
+						$note="Request emailed to Progression team- " . $progressionEmailAddress;
+									
 						self::addPrivateNote($incident,$note);
 					}	
-					
-					
-				
-				if($obj->notify_student==1)
+						
+			if($obj->notify_student==1)
 				{	
-					
-				
 					$messageHeader="Thank you for contacting the Academic Liaison Unit (ALU), Charles Darwin University.<br/><br/>
-					Please find below a copy of your study plan request and respond via return email if you would like to make any amendments.<br/><br/>";
+					Please find below a copy of your study plan request and respond via return email if you would like to make any amendments. <br/><br/>";
 					
 					$messageFooter=" <br/> Our aim is to provide a Recommended Study Plan for your consideration within five (5) working days. <br/>
 A copy of this email has been sent to your official CDU email address and all other addresses that are linked to your student email account.
 ";
-						
+					
+										
 					$message = $messageHeader .  $incidentText .$messageFooter ;
 					
 					$emails=$primaryContact->Emails;
@@ -96,28 +108,11 @@ A copy of this email has been sent to your official CDU email address and all ot
 						self::addAgentEntryToIncident($incident,$message);
 					}
 				}
-					
-	
-		
-			     			
-				$obj->incident_id=$incident;
-				$obj->save(RNCPHP\CO\StudyPlanRequest::SuppressAll);
-			}	
-			
-			return ;
-	}
-		private static function addPrivateNote(&$incident,$p_note)
-	{
-				$thread = new RNCPHP\Thread;
-				//$md = RNCPHP\Thread::getMetadata();
-				$thread->EntryType = new RNCPHP\NamedIDOptList(); //new $md->EntryType->type_name;
-				$thread->EntryType->ID = 1; //private note
-				$thread->Text = $p_note;
-				$incident->Threads[count($incident->Threads)] = $thread;
-					
 				
-				$incident->save(RNCPHP\RNObject::SuppressAll);
-				return;
+				
+
+
+		return ;
 	}
 	private static function addAgentEntryToIncident(&$incident,$message)
 	{
@@ -174,13 +169,26 @@ A copy of this email has been sent to your official CDU email address and all ot
 				
 	}
 	
+	private static function addPrivateNote(&$incident,$p_note)
+	{
+				$thread = new RNCPHP\Thread;
+				//$md = RNCPHP\Thread::getMetadata();
+				$thread->EntryType = new RNCPHP\NamedIDOptList(); //new $md->EntryType->type_name;
+				$thread->EntryType->ID = 1; //private note
+				$thread->Text = $p_note;
+				$incident->Threads[count($incident->Threads)] = $thread;
+					
+				
+				$incident->save(RNCPHP\RNObject::SuppressAll);
+				return;
+	}
 
 	private static function createUpdateIncident($status,$queueName,$subject,$incidentText,$contact,$incident)
 	{
 	
 	
 			if ($incident==NULL) // if creating a new incident
-			{
+			{	var_dump($incident);
 				$incident = new RNCPHP\Incident();
 				$incident->PrimaryContact= $contact;
 				
@@ -191,9 +199,10 @@ A copy of this email has been sent to your official CDU email address and all ot
 				$incident->Threads[0] = new RNCPHP\Thread();
 				$incident->Threads[0]->EntryType = new RNCPHP\NamedIDOptList();
 				$incident->Threads[0]->ContentType=new RNCPHP\NamedIDOptList();
-				$incident->Threads[0]->ContentType->ID=2;
+				$incident->Threads[0]->ContentType->ID=2; //HTML content
 				$incident->Threads[0]->EntryType->ID = 3; // Used the ID here. See the Thread object for definition
 			}
+			
 				$incident->Subject=$subject;
 				
 				$incident->StatusWithType = new RNCPHP\StatusWithType();
@@ -203,6 +212,7 @@ A copy of this email has been sent to your official CDU email address and all ot
 				$incident->Queue->LookupName=$queueName;
 				$incident->Threads[count($incident->Threads)-1]->Text = $incidentText;//add new Thread on the top
 						
+				
 				$incident->save(RNCPHP\RNObject::SuppressAll);
 				return $incident;
 	}
@@ -215,16 +225,15 @@ A copy of this email has been sent to your official CDU email address and all ot
 				
 					include("custom/fnt/forward_submit.php");
 	}
-
+	
 	
 	private static function prepareMessage($incident)
 	{
-						$message="Dear Progression Team,<br/><br/> Can you please action below study plan request for above student currently Under Progression? <br/><br/> Thanks! <br/><br/>";
+						$message="Dear Progression Team,<br/>Can you please action below study plan request for above student currently Under Progression? <br/><br/> Thanks! <br/><br/>";
 		
 						//append incident text to email message
 						$message .= $incident->Threads[0]->Text;
-											
-				
+										
 		return $message;
 		
 	}
@@ -315,7 +324,7 @@ A copy of this email has been sent to your official CDU email address and all ot
     static $org_invented = NULL;
     public static function setup()
     {
-  		$studyplanform_id="10";
+  		$studyplanform_id="214";
 		$studyplanform = RNCPHP\CO\StudyPlanRequest::fetch($studyplanform_id);
        static::$org_invented = $studyplanform;
         return;
@@ -343,7 +352,7 @@ A copy of this email has been sent to your official CDU email address and all ot
         // but good practice if only to
         // document the side effects of
         // this test.
-        static::$org_invented->destroy().
+        //static::$org_invented->destroy().
         static::$org_invented = NULL;
         return;
     }
