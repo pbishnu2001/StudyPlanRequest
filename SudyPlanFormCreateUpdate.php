@@ -1,4 +1,3 @@
-
 <?
 /*
  * CPMObjectEventHandler: StudyPlanRequest
